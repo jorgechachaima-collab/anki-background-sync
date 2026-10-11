@@ -1,0 +1,8 @@
+{
+    "enabled": true,
+    "interval_minutes": 5,
+    "idle_seconds": 60,
+    "show_indicator": true,
+    "notify_on_error": true,
+    "notify_on_success": false
+}
