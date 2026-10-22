@@ -40,4 +40,5 @@ Running on the Mac: venv `python3 -m venv X && X/bin/pip install 'aqt[qt6]==25.2
 
 ## Status
 - v1.0.0 written and tested 2026-10-11. v1.0.1 (Codex review fixes) committed and built 2026-10-22: dist/background_sync-1.0.1.ankiaddon.
-- Pending: create GitHub repo + push (needs a token from Jorge; cloud proxy blocks push — push from the Mac VM as for nanoanki), Jorge's real-life test on Anki 25.02, then AnkiWeb upload (Jorge must do it at ankiweb.net/shared/addons logged in).
+- GitHub: public repo pushed 2026-10-22 (main + tag v1.0.1), via `gh` logged in as jorgechachaima-collab on the Mac.
+- Pending: Jorge's real-life test on Anki 25.02, then AnkiWeb upload (Jorge must do it at ankiweb.net/shared/addons logged in).
