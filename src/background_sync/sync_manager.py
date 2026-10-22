@@ -75,8 +75,22 @@ WATCHDOG_TICKS = 3
 INTERACTIVE_STATES = ("deckBrowser", "overview", "review")
 
 
+class _CancelledBeforeStart(Exception):
+    """The user came back before the backend started our sync."""
+
+
 def _event_types() -> frozenset:
-    names = ("KeyPress", "MouseButtonPress", "Wheel", "TouchBegin", "TabletPress")
+    # A key that triggers a shortcut (e.g. "B" for the browser) reaches Qt as
+    # ShortcutOverride/Shortcut, without a KeyPress.
+    names = (
+        "KeyPress",
+        "ShortcutOverride",
+        "Shortcut",
+        "MouseButtonPress",
+        "Wheel",
+        "TouchBegin",
+        "TabletPress",
+    )
     found = []
     for name in names:
         value = getattr(QEvent.Type, name, None)
@@ -127,8 +141,10 @@ class BackgroundSync:
 
         self._last_activity = time.monotonic()
         self._closing = False
+        self._close_ticks = 0
         self._generation = 0
         self._manual = False
+        self._abort_requested = False
         self._will_start_fired = False
         self._firing_own_hooks = False
         self._external_sync_running = False
@@ -216,6 +232,7 @@ class BackgroundSync:
         if self.state == "syncing" and not self._manual:
             # The user is back: free the collection right away rather than
             # making the window wait for the sync to finish.
+            self._abort_requested = True
             self._abort_sync()
 
     def _on_reviewer_activity(self, *_args) -> None:
@@ -233,6 +250,7 @@ class BackgroundSync:
     def _on_profile_open(self) -> None:
         self._generation += 1
         self._closing = False
+        self._close_ticks = 0
         self._external_sync_running = False
         self._watchdog = 0
         self.state = "idle"
@@ -248,10 +266,37 @@ class BackgroundSync:
         self._changed()
 
     def _on_profile_close(self) -> None:
-        self._generation += 1
+        # Anki fires this before asking open windows to close, and the user
+        # can still cancel (e.g. keep editing in the Add window): see
+        # _recover_from_cancelled_close. The generation only changes when a
+        # profile opens, so callbacks arriving meanwhile still reset the state.
         self._closing = True
+        self._close_ticks = 0
         if self.state == "syncing":
             self._abort_sync()
+
+    def _recover_from_cancelled_close(self) -> None:
+        """If the profile is still open and usable some ticks after
+        profile_will_close, the close was cancelled: resume."""
+        if not self._closing:
+            return
+        mw = self.mw
+        still_open = (
+            getattr(mw, "col", None) is not None
+            and mw.isEnabled()
+            and getattr(mw, "state", None) in INTERACTIVE_STATES
+            and not self._external_sync_running
+            and self._no_dialog_showing()
+        )
+        if not still_open:
+            self._close_ticks = 0
+            return
+        self._close_ticks += 1
+        if self._close_ticks < WATCHDOG_TICKS:
+            return
+        log.info("profile close was cancelled; resuming")
+        self._closing = False
+        self._close_ticks = 0
 
     def _on_any_sync_start(self) -> None:
         if self._firing_own_hooks:
@@ -336,6 +381,9 @@ class BackgroundSync:
             return "editing window"
         return None
 
+    def _auto_sync_allowed(self) -> bool:
+        return self.conf.enabled and not self.is_paused() and not self.stopped_on_error
+
     def _idle_blocker(self) -> str | None:
         idle = self._idle_seconds()
         if idle < self.conf.idle_seconds:
@@ -349,6 +397,11 @@ class BackgroundSync:
 
     def _tick(self) -> None:
         try:
+            self._recover_from_cancelled_close()
+            if self.state == "syncing" and self._abort_requested:
+                # In case the first abort came before the backend had
+                # registered the sync, so there was nothing to abort yet.
+                self._abort_sync()
             self._run_watchdog()
             self._maybe_start()
         except Exception:
@@ -392,7 +445,7 @@ class BackgroundSync:
         self.waiting_for_idle = False
         if self.state != "idle" or self._closing:
             return
-        if not self.conf.enabled or self.is_paused() or self.stopped_on_error:
+        if not self._auto_sync_allowed():
             return
         if not self._auth():
             self.need_login = True
@@ -449,7 +502,12 @@ class BackgroundSync:
         elif out.required == out.FULL_SYNC and self.full_sync_pending:
             # The user already declined; do not ask again until a manual sync.
             self.last_attempt = time.time()
-        elif self._basic_blocker() is None and self._idle_blocker() is None:
+        elif (
+            # Paused or disabled while the check was running?
+            self._auto_sync_allowed()
+            and self._basic_blocker() is None
+            and self._idle_blocker() is None
+        ):
             self._start_sync()
         self._changed()
 
@@ -492,6 +550,7 @@ class BackgroundSync:
         media = mw.pm.media_syncing_enabled()
         self.state = "syncing"
         self._manual = manual
+        self._abort_requested = False
         self.last_attempt = time.time()
         self._fire_own(gui_hooks.sync_will_start)
         self._will_start_fired = True
@@ -501,10 +560,14 @@ class BackgroundSync:
             pass
         self._changed()
 
-        mw.taskman.run_in_background(
-            lambda: col.sync_collection(auth, media),
-            lambda fut: self._on_sync_done(fut, gen),
-        )
+        def task():
+            # abort_sync() only stops a sync the backend has already started,
+            # so check whether the user came back while this task was queued.
+            if self._abort_requested:
+                raise _CancelledBeforeStart()
+            return col.sync_collection(auth, media)
+
+        mw.taskman.run_in_background(task, lambda fut: self._on_sync_done(fut, gen))
 
     def _on_sync_done(self, fut: Future, gen: int) -> None:
         mw = self.mw
@@ -532,7 +595,7 @@ class BackgroundSync:
 
         try:
             out = fut.result()
-        except Interrupted:
+        except (Interrupted, _CancelledBeforeStart):
             # Aborted because the user came back: nothing changed (the sync
             # rolled back). Retry at the next idle moment, without a notice.
             self.last_attempt = None

@@ -36,5 +36,10 @@ def init(self, argv):
 
 
 aqt.AnkiApp.__init__ = init
+# With network access, the "Anki X has been released" box stays open and
+# (correctly) blocks every background sync.
+import aqt.update
+
+aqt.update.check_for_update = lambda *a, **k: None
 sys.argv = ["anki", "-b", sys.argv[1]] + sys.argv[2:]
 aqt.run()

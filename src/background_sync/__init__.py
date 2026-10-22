@@ -11,7 +11,7 @@ License: GNU AGPL v3 or later.
 
 from __future__ import annotations
 
-__version__ = "1.0.0"
+__version__ = "1.0.1"
 
 from aqt import gui_hooks, mw
 from aqt.qt import QAction, qconnect

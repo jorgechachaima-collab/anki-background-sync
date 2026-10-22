@@ -30,6 +30,8 @@ Add-on that syncs Anki ↔ AnkiWeb automatically in the background. Owner: Jorge
 `tests/run_anki.py` launches real Anki offscreen; `tests/probe_addon.py` is a probe add-on that fakes AnkiWeb (patches `col.sync_status`/`col.sync_collection`) and checks 57 scenarios. Result 2026-10-11: **57/57 on 25.02 and 26.09.3, 56/56 on 23.10** (one check is version-specific).
 Setup: venvs with `aqt==X anki==X` + matching PyQt6/WebEngine (23.10 needs python3.11 + PyQt6 6.6.1); env `QT_QPA_PLATFORM=offscreen QTWEBENGINE_CHROMIUM_FLAGS=--no-sandbox`. First run auto-accepts the language dialog (run_anki.py patches QMessageBox).
 An adversarial review by a sub-agent was done; all its relevant findings were fixed (see git history of v1.0.0).
+2026-10-22 (v1.0.1): external review by Codex (GPT-6 Astra) found 4 bugs (cancelled profile close, shortcut keys not counted as activity, abort lost while sync queued, pause ignored during status check); fixed, scenarios 23–26 added. Result on Jorge's Mac, Anki 25.02 venv: **65/65**; each new scenario fails with its fix reverted. Not re-run on 23.10 / 26.09.3.
+Running on the Mac: venv `python3 -m venv X && X/bin/pip install 'aqt[qt6]==25.2'`; add `--disable-gpu` to QTWEBENGINE_CHROMIUM_FLAGS; never run two harness instances at once (Anki is single-instance; a clash corrupts prefs21.db). run_anki.py disables Anki's update check (its dialog blocks syncs when there is network).
 
 ## Build / install
 - `bash build.sh` (or double-click `build.command` on macOS) → `dist/background_sync-<version>.ankiaddon`. Double-click that file to install in Anki.
@@ -37,5 +39,5 @@ An adversarial review by a sub-agent was done; all its relevant findings were fi
 - AnkiWeb page text: `ankiweb_description.html`. Screenshots: `docs/`.
 
 ## Status
-- v1.0.0 written and tested 2026-10-11. Local git repo committed.
+- v1.0.0 written and tested 2026-10-11. v1.0.1 (Codex review fixes) committed and built 2026-10-22: dist/background_sync-1.0.1.ankiaddon.
 - Pending: create GitHub repo + push (needs a token from Jorge; cloud proxy blocks push — push from the Mac VM as for nanoanki), Jorge's real-life test on Anki 25.02, then AnkiWeb upload (Jorge must do it at ankiweb.net/shared/addons logged in).

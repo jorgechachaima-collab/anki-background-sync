@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.1 — 2026-10-22
+
+Fixes found in an external code review (Codex, GPT-6 Astra).
+
+- Cancelling Anki's close or profile switch (e.g. "keep editing" in the Add window) no longer leaves automatic sync switched off until restart, and the indicator no longer stays stuck on "↻".
+- A shortcut key (e.g. B for the browser) now counts as activity, so it cancels a background sync instead of freezing Anki until the sync ends.
+- If you come back to Anki while a background sync is queued but not yet started, it no longer starts anyway.
+- Pausing or disabling while a status check is running now prevents the sync that would have followed.
+
 ## 1.0.0 — 2026-10-11
 
 First release.

@@ -531,6 +531,95 @@ def steps():
                 w.close()
     yield 800
 
+    # 23. profile close cancelled (e.g. "keep editing" in Add) -> resumes
+    behaviour["status"] = SyncStatus.NORMAL_SYNC
+    behaviour["sync"] = "ok"
+    m.last_attempt = time.time()
+    m._check_status()
+    m._on_profile_close()
+    yield 800
+    check("close during check: not stuck", m.state == "idle", m.state)
+    check("closing flag set", m._closing)
+    for _ in range(3):
+        m._tick()
+        yield 100
+    check("cancelled close: resumed", not m._closing)
+    s0 = calls["sync"]
+    m.last_attempt = 0
+    m.last_sync = 0
+    m.last_check = 0
+    m._tick()
+    yield 2000
+    check(
+        "sync works after cancelled close",
+        calls["sync"] == s0 + 1 and m.state == "idle",
+        (calls, m.state),
+    )
+
+    # 24. a shortcut key (ShortcutOverride, no KeyPress) aborts a sync
+    from aqt.qt import QKeyEvent, QEvent, Qt
+
+    m.conf.idle_seconds = 15
+    m._last_activity = time.monotonic() - 100
+    mw.col.abort_sync = lambda: abort_flag.append(1)
+    behaviour["sync"] = "slow"
+    m.last_attempt = 0
+    m.last_sync = 0
+    m.last_check = 0
+    m.failures = 0
+    m._tick()
+    yield 600
+    check("slow sync running (shortcut)", m.state == "syncing", m.state)
+    ev = QKeyEvent(
+        QEvent.Type.ShortcutOverride, Qt.Key.Key_B, Qt.KeyboardModifier.NoModifier
+    )
+    QApplication.sendEvent(mw, ev)
+    yield 1200
+    check(
+        "aborted on shortcut key",
+        m.state == "idle" and m.failures == 0,
+        (m.state, m.failures),
+    )
+    abort_flag.clear()
+
+    # 25. user back while our sync is still queued -> it never starts
+    orig_rib = mw.taskman.run_in_background
+
+    def delayed(task, on_done=None, *a, **k):
+        def late():
+            time.sleep(0.3)
+            return task()
+
+        return orig_rib(late, on_done, *a, **k)
+
+    mw.taskman.run_in_background = delayed
+    mw.col.abort_sync = lambda: None  # nothing registered yet to abort
+    m._last_activity = time.monotonic() - 100
+    s0 = calls["sync"]
+    m._start_sync()
+    m._note_activity()
+    yield 1000
+    check(
+        "queued sync cancelled before start",
+        calls["sync"] == s0 and m.state == "idle" and m.failures == 0,
+        (calls, m.state, m.failures),
+    )
+
+    # 26. paused while the status check runs -> no sync afterwards
+    behaviour["sync"] = "ok"
+    m.conf.idle_seconds = 0
+    s0 = calls["sync"]
+    m._check_status()
+    m.pause_for(3600)
+    yield 1200
+    check(
+        "pause during check: no sync",
+        calls["sync"] == s0 and m.state == "idle",
+        (calls, m.state),
+    )
+    m.resume()
+    mw.taskman.run_in_background = orig_rib
+
     extra = [
         w.__class__.__name__
         for w in QApplication.topLevelWidgets()
